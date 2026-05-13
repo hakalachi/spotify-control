@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Spotify Auth Helper</title>
+<style>
+  body { font: 14px/1.45 system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 20px; color: #1f1f1f; }
+  h1 { margin: 0 0 6px; font-size: 20px; }
+  .sub { color: #666; margin: 0 0 24px; }
+  label { display: block; font-weight: 600; margin: 16px 0 6px; }
+  input { width: 100%; padding: 10px 12px; font: inherit; border: 1px solid #ccc; border-radius: 6px; box-sizing: border-box; }
+  button { margin-top: 16px; padding: 10px 16px; font: inherit; font-weight: 600; background: #1db954; color: white; border: 0; border-radius: 6px; cursor: pointer; }
+  button:disabled { background: #999; cursor: not-allowed; }
+  pre { background: #f5f5f5; padding: 14px; border-radius: 6px; overflow-x: auto; white-space: pre-wrap; word-break: break-all; }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row pre { flex: 1; margin: 0; }
+  .copy { padding: 8px 12px; font: inherit; background: #1f1f1f; color: white; border: 0; border-radius: 6px; cursor: pointer; }
+  .err { color: #b00020; }
+  ol li { margin: 4px 0; }
+  code { background: #f0f0f0; padding: 1px 5px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<h1>Spotify Auth Helper</h1>
+<p class="sub">Generates the refresh token Streamer.bot needs. Uses PKCE — no client secret required.</p>
+
+<div id="setup">
+  <h3>One-time setup</h3>
+  <ol>
+    <li>Create an app at <a href="https://developer.spotify.com/dashboard" target="_blank">developer.spotify.com/dashboard</a>.</li>
+    <li>In the app settings, add this exact <strong>Redirect URI</strong>: <code id="redirect">…</code></li>
+    <li>Copy the <strong>Client ID</strong> and paste it below.</li>
+  </ol>
+
+  <label for="clientId">Spotify Client ID</label>
+  <input id="clientId" placeholder="e.g. 4a1b2c3d…" autocomplete="off">
+  <button id="go">Authorize with Spotify</button>
+  <p id="hint" class="sub" style="margin-top:14px"></p>
+</div>
+
+<div id="result" style="display:none">
+  <h3>Done — paste these into Streamer.bot globals</h3>
+  <label>spotify.clientId</label>
+  <div class="row"><pre id="outId"></pre><button class="copy" data-target="outId">Copy</button></div>
+  <label>spotify.refreshToken</label>
+  <div class="row"><pre id="outToken"></pre><button class="copy" data-target="outToken">Copy</button></div>
+  <p class="sub">Keep this tab open and return to the README's <em>Step 3 — Install in Streamer.bot</em>. Paste these into the <code>Spotify - Set Credentials</code> action.</p>
+</div>
+
+<p id="error" class="err"></p>
+
+<script>
+const SCOPES = "user-modify-playback-state user-read-currently-playing user-read-playback-state";
+const REDIRECT = window.location.origin + window.location.pathname;
+document.getElementById("redirect").textContent = REDIRECT;
+
+function setError(msg) {
+  document.getElementById("error").textContent = msg || "";
+}
+
+function generateRandomString(len) {
+  const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const bytes = new Uint8Array(len);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < len; i++) out += chars[bytes[i] % chars.length];
+  return out;
+}
+
+async function sha256Base64Url(input) {
+  const data = new TextEncoder().encode(input);
+  const hash = await crypto.subtle.digest("SHA-256", data);
+  const bytes = new Uint8Array(hash);
+  let bin = "";
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/=+$/, "").replace(/\+/g, "-").replace(/\//g, "_");
+}
+
+document.getElementById("go").addEventListener("click", async () => {
+  setError("");
+  const clientId = document.getElementById("clientId").value.trim();
+  if (!clientId) return setError("Enter your Client ID.");
+  if (location.protocol === "file:") {
+    return setError("This page must be loaded over https:// (e.g. the GitHub Pages URL) — Spotify rejects file:// redirects.");
+  }
+
+  const verifier = generateRandomString(64);
+  const challenge = await sha256Base64Url(verifier);
+  sessionStorage.setItem("spc.clientId", clientId);
+  sessionStorage.setItem("spc.verifier", verifier);
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    response_type: "code",
+    redirect_uri: REDIRECT,
+    scope: SCOPES,
+    code_challenge_method: "S256",
+    code_challenge: challenge,
+  });
+  location.href = "https://accounts.spotify.com/authorize?" + params.toString();
+});
+
+async function handleRedirect() {
+  const url = new URL(location.href);
+  const code = url.searchParams.get("code");
+  const err = url.searchParams.get("error");
+  if (err) {
+    setError("Spotify returned an error: " + err);
+    history.replaceState({}, "", location.pathname);
+    return;
+  }
+  if (!code) return;
+
+  const clientId = sessionStorage.getItem("spc.clientId");
+  const verifier = sessionStorage.getItem("spc.verifier");
+  history.replaceState({}, "", location.pathname);
+  if (!clientId || !verifier) {
+    setError("Lost the PKCE state — try authorizing again from this same tab.");
+    return;
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "authorization_code",
+    code,
+    redirect_uri: REDIRECT,
+    client_id: clientId,
+    code_verifier: verifier,
+  });
+  const resp = await fetch("https://accounts.spotify.com/api/token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body,
+  });
+  const data = await resp.json();
+  if (!resp.ok || !data.refresh_token) {
+    setError("Token exchange failed: " + JSON.stringify(data));
+    return;
+  }
+  document.getElementById("setup").style.display = "none";
+  document.getElementById("result").style.display = "block";
+  document.getElementById("outId").textContent = clientId;
+  document.getElementById("outToken").textContent = data.refresh_token;
+  sessionStorage.removeItem("spc.verifier");
+}
+
+document.querySelectorAll(".copy").forEach(btn => {
+  btn.addEventListener("click", () => {
+    const target = document.getElementById(btn.dataset.target);
+    navigator.clipboard.writeText(target.textContent).then(() => {
+      const old = btn.textContent; btn.textContent = "Copied"; setTimeout(() => btn.textContent = old, 1200);
+    });
+  });
+});
+
+handleRedirect();
+</script>
+</body>
+</html>
