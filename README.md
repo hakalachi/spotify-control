@@ -46,8 +46,9 @@ Designed for non-technical streamers. Setup is roughly: log into Spotify's devel
    ```
    Replace the placeholders with the values from the auth page (Step 2). Keep the quotes.
 5. Click **Compile**, then close the editor.
-6. Right-click the `Spotify - Set Credentials` action → **Test Trigger**. Watch the *Logs* tab — you should see `[Spotify] credentials saved`.
-7. (Optional but recommended) Right-click `Spotify - Set Credentials` → **Delete**. You don't need it after this — the credentials are now stored.
+6. Add a temporary trigger so you can fire this action once. With `Spotify - Set Credentials` selected, go to the **Triggers** panel on the right → right-click → **Add** → **Core** → **Hotkey**. In the dialog, click the keybind field and press a combo you won't hit by accident (e.g. **Ctrl+Shift+F12**). Click **OK** to save. (This trigger only exists so you can fire the action once — you'll delete the whole action in step 8.)
+7. With Streamer.bot focused, press your hotkey. Watch the *Logs* tab — you should see `[Spotify] credentials saved`.
+8. (Optional but recommended) Right-click `Spotify - Set Credentials` → **Delete**. You don't need it after this — the credentials are now stored.
 
 ### Step 4 — Try it from chat
 
@@ -64,7 +65,7 @@ That's it. From now on, viewers can do the same.
 
 | The bot says... | Try this |
 | --- | --- |
-| "Spotify isn't linked yet" | Credentials didn't save. Re-do Step 3 (steps 4–6). |
+| "Spotify isn't linked yet" | Credentials didn't save. Re-do Step 3 (steps 4–7). |
 | "Spotify auth failed" | The refresh token is bad or was revoked. Re-run Step 2 to generate a new one, then re-do Step 3. |
 | "Spotify isn't playing on any device" | Open Spotify and hit play first. The API needs an active device. |
 | "Spotify Premium is required" | The streaming Spotify account needs Premium. No workaround. |
