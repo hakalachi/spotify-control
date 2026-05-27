@@ -9,7 +9,8 @@ using Newtonsoft.Json.Linq;
 public class CPHInline
 {
     private const string Scopes =
-        "user-modify-playback-state user-read-currently-playing user-read-playback-state";
+        "user-modify-playback-state user-read-currently-playing user-read-playback-state " +
+        "user-read-recently-played";
 
     public bool Execute()
     {
@@ -176,8 +177,37 @@ public class CPHInline
                 return false;
             }
 
-            CPH.SendMessage($"@{userName} queued ♪ {name} — {artists}");
+            int position = TryGetQueuePosition(http, accessToken, uri);
+            if (position > 0)
+                CPH.SendMessage($"@{userName} added {artists} - {name} to Spotify queue at #{position}");
+            else
+                CPH.SendMessage($"@{userName} added {artists} - {name} to Spotify queue");
             return true;
+        }
+    }
+
+    private int TryGetQueuePosition(HttpClient http, string accessToken, string uri)
+    {
+        try
+        {
+            var req = new HttpRequestMessage(HttpMethod.Get,
+                "https://api.spotify.com/v1/me/player/queue");
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+            var resp = http.SendAsync(req).GetAwaiter().GetResult();
+            if (!resp.IsSuccessStatusCode) return 0;
+            var text = resp.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+            var queue = JObject.Parse(text)["queue"] as JArray;
+            if (queue == null) return 0;
+            // Last occurrence — if the same URI was queued multiple times, the most recent add is ours.
+            for (int i = queue.Count - 1; i >= 0; i--)
+            {
+                if ((string)queue[i]["uri"] == uri) return i + 1;
+            }
+            return 0;
+        }
+        catch
+        {
+            return 0;
         }
     }
 }
